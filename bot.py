@@ -255,12 +255,12 @@ def process_candles(candles):
         elif state == 1:
             if pivot_h is not None and pivot_h > p1:
                 p1 = pivot_h; s_bar = 0; closes_below = 0
+            if c > p1 and is_new and bar_time != sent_p1_break_bar:
+                sent_p1_break_bar = bar_time
+                send_telegram(f"P1 BREAKOUT {SYMBOL} p1={p1:.2f} price={c:.2f}")
             if c > p1 + MIN_BREAK_PTS * PIP:
                 p2 = h; c_low = l; corr_low = None; state = 2; s_bar = 0
                 log(f"[S1->2] Breakout! P2={p2:.2f}")
-                if is_new and bar_time != sent_p1_break_bar:
-                    sent_p1_break_bar = bar_time
-                    send_telegram(f"P1 BREAKOUT {SYMBOL} p1={p1:.2f} price={c:.2f}")
             if s_bar > MAX_BARS: state = 0; s_bar = 0
 
         elif state == 2:
