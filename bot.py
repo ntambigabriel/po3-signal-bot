@@ -2,24 +2,26 @@ import time
 import json
 import urllib.request
 import urllib.parse
+import re
 from datetime import datetime
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
-SYMBOL        = "BTCUSDT"
+SYMBOL        = "BTCUSD"
 INTERVAL      = "1m"
 POLL_SECONDS  = 60
 CANDLES_FETCH = 150
+FEED_LABEL    = "Bitstamp"  # matches TradingView exactly
 
 TELEGRAM_TOKEN   = "8592174927:AAEEKWBbqn251iXhBs4-RGm33HIUjfLUaX0"
 TELEGRAM_CHAT_ID = "6726986738"
 
-# ─── INDICATOR SETTINGS ───────────────────────────────────────────────────────
+# ─── INDICATOR SETTINGS (v3.4) ────────────────────────────────────────────────
 SWING_LEN         = 5
 MAX_BARS          = 100
 MIN_BREAK_PTS     = 10
 MIN_CORR_PTS      = 10
 SL_BUFFER         = 10
-RR_RATIO          = 1.5
+RR_RATIO          = 1.7
 MIN_CLOSES_BELOW  = 2
 APPROACH_BUF      = 0.001
 SELL_TP_R         = 1.5
@@ -50,20 +52,25 @@ sent_mid_red_bar   = -1
 sent_sell_bar      = -1
 
 last_processed_bar = -1
+current_price      = None
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 def log(msg):
     print(f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] {msg}", flush=True)
 
-def format_message(alert):
+def format_message(alert, price):
     a = alert.strip()
+    price_line = f"Current Price: <b>{price:.2f}</b>\n" if price else ""
+    p1_line    = f"P1 Level: <b>{p1:.2f}</b>\n" if p1 else ""
+    source     = f"Source: <b>{FEED_LABEL}</b>\n"
 
     if a.startswith("CORRECTION CONFIRMED"):
         pair = a.replace("CORRECTION CONFIRMED ", "")
         return (
             f"📉 <b>STAGE 3 — Correction Confirmed</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"Pair: <b>{pair}</b>\n\n"
+            f"Pair: <b>{pair}</b>\n"
+            f"{source}{price_line}{p1_line}\n"
             f"✅ Price has closed below P1 the required number of times.\n"
             f"✅ Correction size is valid.\n\n"
             f"⏳ Now watching for price to approach and reclaim P1 from below..."
@@ -74,13 +81,13 @@ def format_message(alert):
         return (
             f"🟠 <b>STAGE 4 — Approaching P1</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"Pair: <b>{pair}</b>\n\n"
+            f"Pair: <b>{pair}</b>\n"
+            f"{source}{price_line}{p1_line}\n"
             f"⚠️ Price is getting close to P1 from below.\n"
             f"👀 Get ready — a BUY signal may fire soon if price closes above P1."
         )
 
     if a.startswith("BUY "):
-        import re
         parts = re.match(r"BUY (\S+) entry=([\d.]+) SL=([\d.]+) TP=([\d.]+)", a)
         if parts:
             entry = float(parts.group(2))
@@ -91,6 +98,7 @@ def format_message(alert):
                 f"🟢 <b>STAGE 5 — BUY SIGNAL FIRED</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"Pair: <b>{parts.group(1)}</b>\n"
+                f"{source}{price_line}"
                 f"Entry: <b>{parts.group(2)}</b>\n"
                 f"Stop Loss: <b>{parts.group(3)}</b>\n"
                 f"Take Profit: <b>{parts.group(4)}</b>\n"
@@ -100,13 +108,13 @@ def format_message(alert):
             )
 
     if a.startswith("MIDPOINT TOUCHED"):
-        import re
         parts = re.match(r"MIDPOINT TOUCHED (\S+) mid=([\d.]+)", a)
         if parts:
             return (
                 f"⚪ <b>STAGE 6 — Midpoint Touched</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"Pair: <b>{parts.group(1)}</b>\n"
+                f"{source}{price_line}"
                 f"Midpoint Level: <b>{parts.group(2)}</b>\n\n"
                 f"⚠️ Price has touched the midpoint between entry and SL.\n"
                 f"🔴 Model A Sell is now ARMED.\n"
@@ -114,20 +122,19 @@ def format_message(alert):
             )
 
     if a.startswith("MIDPOINT CROSSED DOWN"):
-        import re
         parts = re.match(r"MIDPOINT CROSSED DOWN (\S+) mid=([\d.]+)", a)
         if parts:
             return (
                 f"🔻 <b>STAGE 6b — Midpoint Crossed Down</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"Pair: <b>{parts.group(1)}</b>\n"
+                f"{source}{price_line}"
                 f"Midpoint Level: <b>{parts.group(2)}</b>\n\n"
                 f"⚠️ Price has dropped below the midpoint.\n"
                 f"⚠️ Caution — buy trade is under pressure."
             )
 
     if a.startswith("MODEL A SELL"):
-        import re
         parts = re.match(r"MODEL A SELL (\S+) LIMIT=([\d.]+) SL=([\d.]+) TP=([\d.]+)", a)
         if parts:
             limit = float(parts.group(2))
@@ -138,6 +145,7 @@ def format_message(alert):
                 f"🔴 <b>STAGE 7 — MODEL A SELL TRIGGERED</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"Pair: <b>{parts.group(1)}</b>\n"
+                f"{source}{price_line}"
                 f"Sell Limit: <b>{parts.group(2)}</b>\n"
                 f"Stop Loss: <b>{parts.group(3)}</b>\n"
                 f"Take Profit: <b>{parts.group(4)}</b>\n"
@@ -146,11 +154,12 @@ def format_message(alert):
                 f"📌 Place sell limit at <b>{parts.group(2)}</b> with SL at <b>{parts.group(3)}</b> and TP at <b>{parts.group(4)}</b>."
             )
 
-    return f"📡 <b>Alert</b>\n{a}"
+    return f"📡 <b>Alert</b>\n{source}{price_line}{a}"
 
 def send_telegram(message):
+    time.sleep(1.5)
     try:
-        text = format_message(message)
+        text = format_message(message, current_price)
         body = json.dumps({
             "chat_id": TELEGRAM_CHAT_ID,
             "text": text,
@@ -167,23 +176,19 @@ def send_telegram(message):
     except Exception as e:
         log(f"TELEGRAM FAILED: {e}")
 
-# ─── BINANCE ──────────────────────────────────────────────────────────────────
+# ─── BITSTAMP DATA ─────────────────────────────────────────────────────────────
 def get_candles():
-    params = urllib.parse.urlencode({
-        "symbol": SYMBOL,
-        "interval": INTERVAL,
-        "limit": CANDLES_FETCH
-    })
-    url = f"https://api.binance.com/api/v3/klines?{params}"
+    url = f"https://www.bitstamp.net/api/v2/ohlc/btcusd/?step=60&limit={CANDLES_FETCH}"
     with urllib.request.urlopen(url, timeout=10) as resp:
         data = json.loads(resp.read().decode("utf-8"))
+    raw = sorted(data["data"]["ohlc"], key=lambda x: int(x["timestamp"]))
     candles = []
-    for k in data[:-1]:
+    for k in raw[:-1]:  # drop last unconfirmed candle
         candles.append({
-            "open_time": int(k[0]),
-            "high":  float(k[2]),
-            "low":   float(k[3]),
-            "close": float(k[4]),
+            "open_time": int(k["timestamp"]) * 1000,
+            "high":  float(k["high"]),
+            "low":   float(k["low"]),
+            "close": float(k["close"]),
         })
     return candles
 
@@ -192,11 +197,9 @@ def pivot_high(candles, idx, swing):
         return None
     center = candles[idx]["high"]
     for j in range(idx - swing, idx):
-        if candles[j]["high"] > center:
-            return None
+        if candles[j]["high"] > center: return None
     for j in range(idx + 1, idx + swing + 1):
-        if candles[j]["high"] >= center:
-            return None
+        if candles[j]["high"] >= center: return None
     return center
 
 # ─── PROCESS ──────────────────────────────────────────────────────────────────
@@ -206,7 +209,7 @@ def process_candles(candles):
     global buy_entry, buy_sl, buy_tp, buy_mid, p2_snapshot
     global sent_approach_bar, sent_corr_bar, sent_buy_bar
     global sent_mid_touch_bar, sent_mid_red_bar, sent_sell_bar
-    global last_processed_bar
+    global last_processed_bar, current_price
 
     start_idx = 0
     for i, c in enumerate(candles):
@@ -224,6 +227,8 @@ def process_candles(candles):
         h = bar["high"]
         l = bar["low"]
         c = bar["close"]
+
+        current_price = c
 
         pivot_h = pivot_high(candles, i - SWING_LEN, SWING_LEN) if i >= SWING_LEN else None
         s_bar += 1
@@ -262,8 +267,8 @@ def process_candles(candles):
                     send_telegram(f"APPROACHING P1 {SYMBOL}")
             if c > p1:
                 buy_entry = c
-                buy_sl = corr_low - SL_BUFFER * PIP
-                buy_tp = buy_entry + (buy_entry - buy_sl) * RR_RATIO
+                buy_sl  = corr_low - SL_BUFFER * PIP
+                buy_tp  = buy_entry + (buy_entry - buy_sl) * RR_RATIO
                 buy_mid = (buy_entry + buy_sl) / 2
                 p2_snapshot = p2
                 in_buy_trade = True; mid_touched = False; mid_crossed_down = False
@@ -315,7 +320,7 @@ def process_candles(candles):
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
-    log(f"Power of 3 Model A Bot started — {SYMBOL} {INTERVAL}")
+    log(f"Power of 3 Model A Bot started — {SYMBOL} 1m — {FEED_LABEL}")
     log(f"Sending directly to Telegram chat {TELEGRAM_CHAT_ID}")
     while True:
         try:
