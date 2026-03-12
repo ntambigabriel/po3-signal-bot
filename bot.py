@@ -5,7 +5,7 @@ import urllib.parse
 import re
 from datetime import datetime
 
-# ─── CONFIG ───────────────────────────────────────────────────────────────────
+# --- CONFIG -------------------------------------------------------------------
 SYMBOL        = "BTCUSD"
 INTERVAL      = "1m"
 POLL_SECONDS  = 10
@@ -15,7 +15,7 @@ FEED_LABEL    = "Bitstamp"
 TELEGRAM_TOKEN   = "8592174927:AAEEKWBbqn251iXhBs4-RGm33HIUjfLUaX0"
 TELEGRAM_CHAT_ID = "6726986738"
 
-# ─── INDICATOR SETTINGS (v3.4) ────────────────────────────────────────────────
+# --- INDICATOR SETTINGS (v3.4) ------------------------------------------------
 SWING_LEN         = 5
 MAX_BARS          = 100
 MIN_BREAK_PTS     = 10
@@ -27,7 +27,7 @@ APPROACH_BUF      = 0.001
 SELL_TP_R         = 1.0
 PIP               = 0.1
 
-# ─── STATE ────────────────────────────────────────────────────────────────────
+# --- STATE --------------------------------------------------------------------
 state            = 0
 s_bar            = 0
 closes_below     = 0
@@ -56,7 +56,7 @@ sent_sell_bar      = -1
 last_processed_bar = -1
 current_price      = None
 
-# ─── HELPERS ──────────────────────────────────────────────────────────────────
+# --- HELPERS ------------------------------------------------------------------
 def log(msg):
     print(f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] {msg}", flush=True)
 
@@ -83,7 +83,7 @@ def format_message(alert, price):
         parts = re.match(r"P1 BREAKOUT (\S+) p1=([\d.]+) price=([\d.]+)", a)
         if parts:
             return (
-                f"🚀 <b>STAGE 1 — PO3 MOVE STARTED</b>\n"
+                f"🚀 <b>STAGE 1 - PO3 MOVE STARTED</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"Pair: <b>{parts.group(1)}</b>\n"
                 f"{source}"
@@ -96,7 +96,7 @@ def format_message(alert, price):
     if a.startswith("CORRECTION CONFIRMED"):
         pair = a.replace("CORRECTION CONFIRMED ", "")
         return (
-            f"📉 <b>STAGE 3 — Correction Confirmed</b>\n"
+            f"📉 <b>STAGE 3 - Correction Confirmed</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"Pair: <b>{pair}</b>\n"
             f"{source}{price_line}{p1_line}\n"
@@ -108,7 +108,7 @@ def format_message(alert, price):
     if a.startswith("APPROACHING P1"):
         pair = a.replace("APPROACHING P1 ", "")
         return (
-            f"🟠 <b>STAGE 4 — Approaching P1</b>\n"
+            f"🟠 <b>STAGE 4 - Approaching P1</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"Pair: <b>{pair}</b>\n"
             f"{source}{price_line}{p1_line}\n"
@@ -124,7 +124,7 @@ def format_message(alert, price):
             tp    = float(parts.group(4))
             rr    = round((tp - entry) / (entry - sl), 2)
             return (
-                f"🟢 <b>STAGE 5 — BUY SIGNAL FIRED</b>\n"
+                f"🟢 <b>STAGE 5 - BUY SIGNAL FIRED</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"Pair: <b>{parts.group(1)}</b>\n"
                 f"{source}{price_line}"
@@ -140,7 +140,7 @@ def format_message(alert, price):
         parts = re.match(r"MIDPOINT TOUCHED (\S+) mid=([\d.]+)", a)
         if parts:
             return (
-                f"⚪ <b>STAGE 6 — Midpoint Touched</b>\n"
+                f"⚪ <b>STAGE 6 - Midpoint Touched</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"Pair: <b>{parts.group(1)}</b>\n"
                 f"{source}{price_line}"
@@ -154,7 +154,7 @@ def format_message(alert, price):
         parts = re.match(r"MIDPOINT CROSSED DOWN (\S+) mid=([\d.]+)", a)
         if parts:
             return (
-                f"🔻 <b>STAGE 6b — Midpoint Crossed Down</b>\n"
+                f"🔻 <b>STAGE 6b - Midpoint Crossed Down</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"Pair: <b>{parts.group(1)}</b>\n"
                 f"{source}{price_line}"
@@ -171,7 +171,7 @@ def format_message(alert, price):
             tp    = float(parts.group(4))
             rr    = round((limit - tp) / (sl - limit), 2)
             return (
-                f"🔴 <b>STAGE 7 — MODEL A SELL TRIGGERED</b>\n"
+                f"🔴 <b>STAGE 7 - MODEL A SELL TRIGGERED</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"Pair: <b>{parts.group(1)}</b>\n"
                 f"{source}{price_line}"
@@ -200,11 +200,11 @@ def send_telegram(message):
             method="POST"
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
-            log(f"TELEGRAM SENT → {message[:60]} | status={resp.status}")
+            log(f"TELEGRAM SENT -> {message[:60]} | status={resp.status}")
     except Exception as e:
         log(f"TELEGRAM FAILED: {e}")
 
-# ─── BITSTAMP DATA ────────────────────────────────────────────────────────────
+# --- BITSTAMP DATA ------------------------------------------------------------
 def get_candles():
     url = f"https://www.bitstamp.net/api/v2/ohlc/btcusd/?step=60&limit={CANDLES_FETCH}"
     with urllib.request.urlopen(url, timeout=10) as resp:
@@ -230,7 +230,7 @@ def pivot_high(candles, idx, swing):
         if candles[j]["high"] >= center: return None
     return center
 
-# ─── PROCESS ──────────────────────────────────────────────────────────────────
+# --- PROCESS ------------------------------------------------------------------
 def process_candles(candles):
     global state, s_bar, closes_below, p1, p2, c_low, corr_low
     global in_buy_trade, mid_touched, mid_crossed_down, sell_triggered
@@ -343,7 +343,7 @@ def process_candles(candles):
                 mid_touched = False
 
             elif l <= buy_sl and not mid_touched:
-                log(f"[TRADE] SL hit — stopped out")
+                log(f"[TRADE] SL hit - stopped out")
                 in_buy_trade = False; sell_triggered = False
                 buy_entry = buy_sl = buy_tp = buy_mid = None
                 mid_touched = False
@@ -351,9 +351,9 @@ def process_candles(candles):
         if is_new:
             last_processed_bar = bar_time
 
-# ─── MAIN ─────────────────────────────────────────────────────────────────────
+# --- MAIN ---------------------------------------------------------------------
 def main():
-    log(f"Power of 3 Model A Bot started — {SYMBOL} 1m — {FEED_LABEL}")
+    log(f"Power of 3 Model A Bot started - {SYMBOL} 1m - {FEED_LABEL}")
     log(f"Sending directly to Telegram chat {TELEGRAM_CHAT_ID}")
     send_telegram(f"STARTUP {SYMBOL}")
     while True:
@@ -367,18 +367,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
-
----
-
-GitHub → pencil → **Ctrl+A** → paste → commit. The moment Railway redeploys you'll get this in Telegram:
-```
-✅ Bot is LIVE
-━━━━━━━━━━━━━━━━━━━━
-Pair: BTCUSD
-Source: Bitstamp
-Timeframe: 1 minute
-Poll interval: 10 seconds
-
-🟢 Watching for PO3 signals...
-📡 All alerts will appear here.
