@@ -7,11 +7,13 @@ from datetime import datetime
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 SYMBOL        = "BTCUSDT"
 INTERVAL      = "1m"
-WEBHOOK_URL   = "https://tv-telegram-relay-l4ri.onrender.com/webhook"
 POLL_SECONDS  = 60
 CANDLES_FETCH = 150
 
-# ─── INDICATOR SETTINGS (mirrors Pine Script v3.5) ────────────────────────────
+TELEGRAM_TOKEN   = "8592174927:AAEEKWBbqn251iXhBs4-RGm33HIUjfLUaX0"
+TELEGRAM_CHAT_ID = "6726986738"
+
+# ─── INDICATOR SETTINGS ───────────────────────────────────────────────────────
 SWING_LEN         = 5
 MAX_BARS          = 100
 MIN_BREAK_PTS     = 10
@@ -49,23 +51,123 @@ sent_sell_bar      = -1
 
 last_processed_bar = -1
 
+# ─── HELPERS ──────────────────────────────────────────────────────────────────
 def log(msg):
     print(f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] {msg}", flush=True)
 
-def send_alert(message):
+def format_message(alert):
+    a = alert.strip()
+
+    if a.startswith("CORRECTION CONFIRMED"):
+        pair = a.replace("CORRECTION CONFIRMED ", "")
+        return (
+            f"📉 <b>STAGE 3 — Correction Confirmed</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"Pair: <b>{pair}</b>\n\n"
+            f"✅ Price has closed below P1 the required number of times.\n"
+            f"✅ Correction size is valid.\n\n"
+            f"⏳ Now watching for price to approach and reclaim P1 from below..."
+        )
+
+    if a.startswith("APPROACHING P1"):
+        pair = a.replace("APPROACHING P1 ", "")
+        return (
+            f"🟠 <b>STAGE 4 — Approaching P1</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"Pair: <b>{pair}</b>\n\n"
+            f"⚠️ Price is getting close to P1 from below.\n"
+            f"👀 Get ready — a BUY signal may fire soon if price closes above P1."
+        )
+
+    if a.startswith("BUY "):
+        import re
+        parts = re.match(r"BUY (\S+) entry=([\d.]+) SL=([\d.]+) TP=([\d.]+)", a)
+        if parts:
+            entry = float(parts.group(2))
+            sl    = float(parts.group(3))
+            tp    = float(parts.group(4))
+            rr    = round((tp - entry) / (entry - sl), 2)
+            return (
+                f"🟢 <b>STAGE 5 — BUY SIGNAL FIRED</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"Pair: <b>{parts.group(1)}</b>\n"
+                f"Entry: <b>{parts.group(2)}</b>\n"
+                f"Stop Loss: <b>{parts.group(3)}</b>\n"
+                f"Take Profit: <b>{parts.group(4)}</b>\n"
+                f"R:R Ratio: <b>1:{rr}</b>\n\n"
+                f"✅ Price has closed back above P1.\n"
+                f"⏳ Now managing trade — watching midpoint and SL..."
+            )
+
+    if a.startswith("MIDPOINT TOUCHED"):
+        import re
+        parts = re.match(r"MIDPOINT TOUCHED (\S+) mid=([\d.]+)", a)
+        if parts:
+            return (
+                f"⚪ <b>STAGE 6 — Midpoint Touched</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"Pair: <b>{parts.group(1)}</b>\n"
+                f"Midpoint Level: <b>{parts.group(2)}</b>\n\n"
+                f"⚠️ Price has touched the midpoint between entry and SL.\n"
+                f"🔴 Model A Sell is now ARMED.\n"
+                f"👀 If price drops back to SL from here, a SELL LIMIT will trigger."
+            )
+
+    if a.startswith("MIDPOINT CROSSED DOWN"):
+        import re
+        parts = re.match(r"MIDPOINT CROSSED DOWN (\S+) mid=([\d.]+)", a)
+        if parts:
+            return (
+                f"🔻 <b>STAGE 6b — Midpoint Crossed Down</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"Pair: <b>{parts.group(1)}</b>\n"
+                f"Midpoint Level: <b>{parts.group(2)}</b>\n\n"
+                f"⚠️ Price has dropped below the midpoint.\n"
+                f"⚠️ Caution — buy trade is under pressure."
+            )
+
+    if a.startswith("MODEL A SELL"):
+        import re
+        parts = re.match(r"MODEL A SELL (\S+) LIMIT=([\d.]+) SL=([\d.]+) TP=([\d.]+)", a)
+        if parts:
+            limit = float(parts.group(2))
+            sl    = float(parts.group(3))
+            tp    = float(parts.group(4))
+            rr    = round((limit - tp) / (sl - limit), 2)
+            return (
+                f"🔴 <b>STAGE 7 — MODEL A SELL TRIGGERED</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"Pair: <b>{parts.group(1)}</b>\n"
+                f"Sell Limit: <b>{parts.group(2)}</b>\n"
+                f"Stop Loss: <b>{parts.group(3)}</b>\n"
+                f"Take Profit: <b>{parts.group(4)}</b>\n"
+                f"R:R Ratio: <b>1:{rr}</b>\n\n"
+                f"✅ Buy failed — midpoint was touched then price hit SL.\n"
+                f"📌 Place sell limit at <b>{parts.group(2)}</b> with SL at <b>{parts.group(3)}</b> and TP at <b>{parts.group(4)}</b>."
+            )
+
+    return f"📡 <b>Alert</b>\n{a}"
+
+def send_telegram(message):
     try:
-        payload = json.dumps({"alert": message}).encode("utf-8")
+        text = format_message(message)
+        body = json.dumps({
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": text,
+            "parse_mode": "HTML"
+        }).encode("utf-8")
         req = urllib.request.Request(
-            WEBHOOK_URL,
-            data=payload,
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            data=body,
             headers={"Content-Type": "application/json"},
             method="POST"
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
-            log(f"ALERT SENT -> {message} | status={resp.status}")
+            log(f"TELEGRAM SENT → {message[:60]} | status={resp.status}")
     except Exception as e:
-        log(f"ALERT FAILED: {e}")
+        log(f"TELEGRAM FAILED: {e}")
 
+# ─── BINANCE ──────────────────────────────────────────────────────────────────
 def get_candles():
     params = urllib.parse.urlencode({
         "symbol": SYMBOL,
@@ -97,6 +199,7 @@ def pivot_high(candles, idx, swing):
             return None
     return center
 
+# ─── PROCESS ──────────────────────────────────────────────────────────────────
 def process_candles(candles):
     global state, s_bar, closes_below, p1, p2, c_low, corr_low
     global in_buy_trade, mid_touched, mid_crossed_down
@@ -123,52 +226,32 @@ def process_candles(candles):
         c = bar["close"]
 
         pivot_h = pivot_high(candles, i - SWING_LEN, SWING_LEN) if i >= SWING_LEN else None
-
         s_bar += 1
 
         if state == 0 and pivot_h is not None:
-            p1 = pivot_h
-            state = 1
-            s_bar = 0
-            closes_below = 0
+            p1 = pivot_h; state = 1; s_bar = 0; closes_below = 0
             log(f"[S0->1] P1 set = {p1:.2f}")
 
         elif state == 1:
             if pivot_h is not None and pivot_h > p1:
-                p1 = pivot_h
-                s_bar = 0
-                closes_below = 0
-                log(f"[S1] P1 updated = {p1:.2f}")
+                p1 = pivot_h; s_bar = 0; closes_below = 0
             if c > p1 + MIN_BREAK_PTS * PIP:
-                p2 = h
-                c_low = l
-                corr_low = None
-                state = 2
-                s_bar = 0
+                p2 = h; c_low = l; corr_low = None; state = 2; s_bar = 0
                 log(f"[S1->2] Breakout! P2={p2:.2f}")
-            if s_bar > MAX_BARS:
-                state = 0
-                s_bar = 0
+            if s_bar > MAX_BARS: state = 0; s_bar = 0
 
         elif state == 2:
             if h > p2: p2 = h
             if l < c_low: c_low = l
-            if c < p1:
-                closes_below += 1
-            else:
-                closes_below = 0
+            if c < p1: closes_below += 1
+            else: closes_below = 0
             if closes_below >= MIN_CLOSES_BELOW and (p2 - c_low) >= MIN_CORR_PTS * PIP:
-                corr_low = c_low
-                state = 3
-                s_bar = 0
-                closes_below = 0
+                corr_low = c_low; state = 3; s_bar = 0; closes_below = 0
                 log(f"[S2->3] Correction confirmed. corr_low={corr_low:.2f}")
                 if is_new and bar_time != sent_corr_bar:
                     sent_corr_bar = bar_time
-                    send_alert(f"CORRECTION CONFIRMED {SYMBOL}")
-            if s_bar > MAX_BARS:
-                state = 0
-                s_bar = 0
+                    send_telegram(f"CORRECTION CONFIRMED {SYMBOL}")
+            if s_bar > MAX_BARS: state = 0; s_bar = 0
 
         elif state == 3:
             if l < corr_low: corr_low = l
@@ -176,38 +259,33 @@ def process_candles(candles):
             if h >= threshold and c < p1:
                 if is_new and bar_time != sent_approach_bar:
                     sent_approach_bar = bar_time
-                    send_alert(f"APPROACHING P1 {SYMBOL}")
+                    send_telegram(f"APPROACHING P1 {SYMBOL}")
             if c > p1:
                 buy_entry = c
                 buy_sl = corr_low - SL_BUFFER * PIP
                 buy_tp = buy_entry + (buy_entry - buy_sl) * RR_RATIO
                 buy_mid = (buy_entry + buy_sl) / 2
                 p2_snapshot = p2
-                in_buy_trade = True
-                mid_touched = False
-                mid_crossed_down = False
-                state = 0
-                s_bar = 0
+                in_buy_trade = True; mid_touched = False; mid_crossed_down = False
+                state = 0; s_bar = 0
                 log(f"[S3->BUY] entry={buy_entry:.2f} SL={buy_sl:.2f} TP={buy_tp:.2f}")
                 if is_new and bar_time != sent_buy_bar:
                     sent_buy_bar = bar_time
-                    send_alert(f"BUY {SYMBOL} entry={buy_entry:.2f} SL={buy_sl:.2f} TP={buy_tp:.2f}")
-            if s_bar > MAX_BARS:
-                state = 0
-                s_bar = 0
+                    send_telegram(f"BUY {SYMBOL} entry={buy_entry:.2f} SL={buy_sl:.2f} TP={buy_tp:.2f}")
+            if s_bar > MAX_BARS: state = 0; s_bar = 0
 
         if in_buy_trade and buy_sl is not None:
             if not mid_crossed_down and l < buy_mid:
                 mid_crossed_down = True
                 if is_new and bar_time != sent_mid_red_bar:
                     sent_mid_red_bar = bar_time
-                    send_alert(f"MIDPOINT CROSSED DOWN {SYMBOL} mid={buy_mid:.2f}")
+                    send_telegram(f"MIDPOINT CROSSED DOWN {SYMBOL} mid={buy_mid:.2f}")
 
             if not mid_touched and l <= buy_mid and h >= buy_mid:
                 mid_touched = True
                 if is_new and bar_time != sent_mid_touch_bar:
                     sent_mid_touch_bar = bar_time
-                    send_alert(f"MIDPOINT TOUCHED {SYMBOL} mid={buy_mid:.2f}")
+                    send_telegram(f"MIDPOINT TOUCHED {SYMBOL} mid={buy_mid:.2f}")
 
             if h >= buy_tp:
                 log(f"[TRADE] TP hit at {buy_tp:.2f}")
@@ -219,16 +297,15 @@ def process_candles(candles):
                 s_entry = buy_mid
                 s_sl    = p2_snapshot + SL_BUFFER * PIP
                 s_tp    = s_entry - (s_sl - s_entry) * SELL_TP_R
-                log(f"[MODEL A SELL] LIMIT={s_entry:.2f} SL={s_sl:.2f} TP={s_tp:.2f}")
                 if is_new and bar_time != sent_sell_bar:
                     sent_sell_bar = bar_time
-                    send_alert(f"MODEL A SELL {SYMBOL} LIMIT={s_entry:.2f} SL={s_sl:.2f} TP={s_tp:.2f}")
+                    send_telegram(f"MODEL A SELL {SYMBOL} LIMIT={s_entry:.2f} SL={s_sl:.2f} TP={s_tp:.2f}")
                 in_buy_trade = False
                 buy_entry = buy_sl = buy_tp = buy_mid = None
                 mid_touched = False
 
             elif l <= buy_sl and not mid_touched:
-                log(f"[TRADE] SL hit at {buy_sl:.2f} — stopped out")
+                log(f"[TRADE] SL hit — stopped out")
                 in_buy_trade = False
                 buy_entry = buy_sl = buy_tp = buy_mid = None
                 mid_touched = False
@@ -236,9 +313,10 @@ def process_candles(candles):
         if is_new:
             last_processed_bar = bar_time
 
+# ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
     log(f"Power of 3 Model A Bot started — {SYMBOL} {INTERVAL}")
-    log(f"Webhook -> {WEBHOOK_URL}")
+    log(f"Sending directly to Telegram chat {TELEGRAM_CHAT_ID}")
     while True:
         try:
             candles = get_candles()
