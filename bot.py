@@ -66,6 +66,19 @@ def format_message(alert, price):
     p1_line    = f"P1 Level: <b>{p1:.2f}</b>\n" if p1 else ""
     source     = f"Source: <b>{FEED_LABEL}</b>\n"
 
+    if a.startswith("STARTUP"):
+        pair = a.replace("STARTUP ", "")
+        return (
+            f"✅ <b>Bot is LIVE</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"Pair: <b>{pair}</b>\n"
+            f"{source}"
+            f"Timeframe: <b>1 minute</b>\n"
+            f"Poll interval: <b>10 seconds</b>\n\n"
+            f"🟢 Watching for PO3 signals...\n"
+            f"📡 All alerts will appear here."
+        )
+
     if a.startswith("P1 BREAKOUT"):
         parts = re.match(r"P1 BREAKOUT (\S+) p1=([\d.]+) price=([\d.]+)", a)
         if parts:
@@ -342,6 +355,7 @@ def process_candles(candles):
 def main():
     log(f"Power of 3 Model A Bot started — {SYMBOL} 1m — {FEED_LABEL}")
     log(f"Sending directly to Telegram chat {TELEGRAM_CHAT_ID}")
+    send_telegram(f"STARTUP {SYMBOL}")
     while True:
         try:
             candles = get_candles()
@@ -353,3 +367,18 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
+
+---
+
+GitHub → pencil → **Ctrl+A** → paste → commit. The moment Railway redeploys you'll get this in Telegram:
+```
+✅ Bot is LIVE
+━━━━━━━━━━━━━━━━━━━━
+Pair: BTCUSD
+Source: Bitstamp
+Timeframe: 1 minute
+Poll interval: 10 seconds
+
+🟢 Watching for PO3 signals...
+📡 All alerts will appear here.
