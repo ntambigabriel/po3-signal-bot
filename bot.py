@@ -8,7 +8,7 @@ from datetime import datetime
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 SYMBOL        = "BTCUSD"
 INTERVAL      = "1m"
-POLL_SECONDS  = 60
+POLL_SECONDS  = 30
 CANDLES_FETCH = 150
 FEED_LABEL    = "Bitstamp"  # matches TradingView exactly
 
@@ -21,10 +21,10 @@ MAX_BARS          = 100
 MIN_BREAK_PTS     = 10
 MIN_CORR_PTS      = 10
 SL_BUFFER         = 10
-RR_RATIO          = 1.7
+RR_RATIO          = 1.5
 MIN_CLOSES_BELOW  = 2
 APPROACH_BUF      = 0.001
-SELL_TP_R         = 1.5
+SELL_TP_R         = 1.0
 PIP               = 0.1
 
 # ─── STATE ────────────────────────────────────────────────────────────────────
