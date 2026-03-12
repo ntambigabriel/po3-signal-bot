@@ -8,7 +8,7 @@ from datetime import datetime
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 SYMBOL        = "BTCUSD"
 INTERVAL      = "1m"
-POLL_SECONDS  = 30
+POLL_SECONDS  = 10
 CANDLES_FETCH = 150
 FEED_LABEL    = "Bitstamp"
 
@@ -43,6 +43,7 @@ buy_sl           = None
 buy_tp           = None
 buy_mid          = None
 p2_snapshot      = None
+sell_triggered   = False
 
 sent_p1_break_bar  = -1
 sent_approach_bar  = -1
@@ -172,7 +173,6 @@ def format_message(alert, price):
     return f"📡 <b>Alert</b>\n{source}{price_line}{a}"
 
 def send_telegram(message):
-    time.sleep(1.5)
     try:
         text = format_message(message, current_price)
         body = json.dumps({
@@ -220,7 +220,7 @@ def pivot_high(candles, idx, swing):
 # ─── PROCESS ──────────────────────────────────────────────────────────────────
 def process_candles(candles):
     global state, s_bar, closes_below, p1, p2, c_low, corr_low
-    global in_buy_trade, mid_touched, mid_crossed_down
+    global in_buy_trade, mid_touched, mid_crossed_down, sell_triggered
     global buy_entry, buy_sl, buy_tp, buy_mid, p2_snapshot
     global sent_p1_break_bar, sent_approach_bar, sent_corr_bar, sent_buy_bar
     global sent_mid_touch_bar, sent_mid_red_bar, sent_sell_bar
@@ -289,7 +289,8 @@ def process_candles(candles):
                 buy_tp  = buy_entry + (buy_entry - buy_sl) * RR_RATIO
                 buy_mid = (buy_entry + buy_sl) / 2
                 p2_snapshot = p2
-                in_buy_trade = True; mid_touched = False; mid_crossed_down = False
+                in_buy_trade = True; mid_touched = False
+                mid_crossed_down = False; sell_triggered = False
                 state = 0; s_bar = 0
                 log(f"[S3->BUY] entry={buy_entry:.2f} SL={buy_sl:.2f} TP={buy_tp:.2f}")
                 if is_new and bar_time != sent_buy_bar:
@@ -312,11 +313,12 @@ def process_candles(candles):
 
             if h >= buy_tp:
                 log(f"[TRADE] TP hit at {buy_tp:.2f}")
-                in_buy_trade = False
+                in_buy_trade = False; sell_triggered = False
                 buy_entry = buy_sl = buy_tp = buy_mid = None
                 mid_touched = False
 
-            elif mid_touched and l <= buy_sl:
+            elif mid_touched and l <= buy_sl and not sell_triggered:
+                sell_triggered = True
                 s_entry = buy_mid
                 s_sl    = p2_snapshot + SL_BUFFER * PIP
                 s_tp    = s_entry - (s_sl - s_entry) * SELL_TP_R
@@ -329,7 +331,7 @@ def process_candles(candles):
 
             elif l <= buy_sl and not mid_touched:
                 log(f"[TRADE] SL hit — stopped out")
-                in_buy_trade = False
+                in_buy_trade = False; sell_triggered = False
                 buy_entry = buy_sl = buy_tp = buy_mid = None
                 mid_touched = False
 
